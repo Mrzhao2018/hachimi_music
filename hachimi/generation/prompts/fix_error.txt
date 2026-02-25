@@ -1,0 +1,17 @@
+The previous attempt to generate ABC notation resulted in a parsing error.
+
+**Error**: {error}
+
+**Previous ABC notation**:
+```
+{abc_notation}
+```
+
+Please fix the ABC notation to resolve the error. Make sure:
+1. All header fields (X:, T:, M:, L:, Q:, K:) are present and correctly formatted
+2. Voice directives (V:) match between header and body
+3. Note lengths add up correctly for each measure
+4. All bar lines are properly placed
+5. No invalid characters or syntax errors
+
+Output the corrected result as a complete JSON object (same format as before).

@@ -1,0 +1,47 @@
+[project]
+name = "hachimi-music"
+version = "0.1.0"
+description = "AI-powered music generation: from natural language prompts to audio"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "music21>=9.1",
+    "pretty-midi>=0.2.10",
+    "mido>=1.3",
+    "midi2audio>=0.1.1",
+    "pydub>=0.25",
+    "pedalboard>=0.9",
+    "openai>=1.50",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "python-multipart>=0.0.12",
+    "aiofiles>=24.1",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "scipy>=1.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.7",
+]
+
+[project.scripts]
+hachimi = "scripts.generate:main"
+
+[tool.setuptools.packages.find]
+include = ["hachimi*", "scripts*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -1,0 +1,31 @@
+ai:
+  base_url: https://gcli.ggchan.dev/v1
+  model: gemini-3-flash-preview-search
+  max_retries: 3
+  temperature: 1.0
+music:
+  default_tempo: 120
+  default_key: C
+  default_time_signature: 4/4
+  default_style: classical
+  max_measures: 64
+synthesis:
+  soundfont: soundfonts/MuseScore_General.sf2
+  sample_rate: 44100
+  output_format: mp3
+postprocess:
+  reverb: true
+  reverb_room_size: 0.3
+  normalize: true
+  fade_in_ms: 100
+  fade_out_ms: 500
+server:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+  - http://localhost:3000
+  - http://localhost:5173
+  - http://localhost:8001
+paths:
+  output_dir: output
+  soundfonts_dir: soundfonts

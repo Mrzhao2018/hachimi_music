@@ -1,0 +1,15 @@
+Compose a piece of music with the following specifications:
+
+**Description**: {prompt}
+
+**Musical Parameters**:
+- Style: {style}
+- Key: {key}
+- Time Signature: {time_signature}
+- Tempo: {tempo} BPM
+- Number of measures: {measures}
+- Instruments: {instruments}
+
+Please compose a complete piece following all the rules in your system instructions. Make sure the ABC notation is valid and all voices are properly defined.
+
+**IMPORTANT**: Your response must be a single JSON object (not raw ABC notation). The JSON must contain `title`, `description`, `key`, `time_signature`, `tempo`, `instruments`, and `abc_notation` fields. Output ONLY the JSON, nothing else.

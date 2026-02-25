@@ -1,0 +1,42 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Output
+output/*.wav
+output/*.mp3
+output/*.mid
+
+# SoundFonts (large binary files)
+soundfonts/*.sf2
+soundfonts/*.sf3
+
+# FluidSynth binary (auto-installed)
+fluidsynth/
+bin/
+include/
+lib/
+
+# Projects data
+projects/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Misc
+*.bak
+hachimi_music.egg-info/

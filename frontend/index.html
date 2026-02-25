@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hachimi Music - AI 音乐生成</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🎵 Hachimi Music</h1>
+                <p class="subtitle">AI 驱动的音乐生成器 — 用自然语言创作音乐</p>
+            </div>
+            <button class="btn-icon" id="settings-toggle" onclick="toggleSettings()" title="设置">⚙️</button>
+        </header>
+
+        <div class="layout">
+            <!-- Sidebar: Project List -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <h2>📁 项目</h2>
+                    <button class="btn btn-sm btn-primary" onclick="showCreateProject()">+ 新建</button>
+                </div>
+                <div class="sidebar-list" id="project-list">
+                    <p class="empty-state">暂无项目</p>
+                </div>
+                <div class="sidebar-footer">
+                    <button class="btn btn-sm" onclick="showSetupPanel()">🔧 环境设置</button>
+                </div>
+            </aside>
+
+            <main class="main">
+            <!-- Settings Panel -->
+            <section class="panel settings-panel" id="settings-panel" style="display:none;">
+                <h2>⚙️ API 与合成设置</h2>
+
+                <div class="settings-section">
+                    <h3>🤖 AI 模型配置</h3>
+                    <div class="form-group">
+                        <label for="cfg-baseurl">API Base URL</label>
+                        <input type="text" id="cfg-baseurl" placeholder="https://api.openai.com/v1">
+                        <span class="field-hint">支持任意 OpenAI 兼容端点（OpenRouter、Ollama、vLLM 等）</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-model">模型</label>
+                        <div class="model-select-group">
+                            <select id="cfg-model">
+                                <option value="">点击刷新获取模型列表</option>
+                            </select>
+                            <button class="btn-icon" onclick="fetchModels()" title="从 API 获取模型列表" id="btn-fetch-models">🔄</button>
+                        </div>
+                        <span class="field-hint" id="cfg-model-hint">保存 Base URL 和 API Key 后，点击 🔄 获取可用模型</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-apikey">API Key</label>
+                        <div class="apikey-group">
+                            <input type="password" id="cfg-apikey" placeholder="sk-... 或 留空使用环境变量" autocomplete="off">
+                            <button class="btn-icon btn-eye" onclick="toggleApiKeyVisibility()" title="显示/隐藏">👁️</button>
+                        </div>
+                        <span class="field-hint" id="cfg-apikey-hint"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-temperature">Temperature (创造性)</label>
+                        <div class="range-group">
+                            <input type="range" id="cfg-temperature" min="0" max="1.5" step="0.1" value="0.8">
+                            <span id="cfg-temperature-value" class="range-value">0.8</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>🔊 合成设置</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfg-soundfont">SoundFont</label>
+                            <select id="cfg-soundfont">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cfg-samplerate">采样率</label>
+                            <select id="cfg-samplerate">
+                                <option value="44100">44100 Hz (CD)</option>
+                                <option value="48000">48000 Hz</option>
+                                <option value="22050">22050 Hz (低)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>🎛️ 后处理</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="cfg-reverb" checked> 混响 (Reverb)
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="cfg-reverb-size">混响深度</label>
+                            <div class="range-group">
+                                <input type="range" id="cfg-reverb-size" min="0" max="1" step="0.05" value="0.3">
+                                <span id="cfg-reverb-size-value" class="range-value">0.3</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cfg-normalize" checked> 响度归一化
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-actions">
+                    <button class="btn btn-primary" onclick="saveSettings()">💾 保存设置</button>
+                    <span class="save-status" id="save-status"></span>
+                </div>
+            </section>
+
+            <!-- Input Panel -->
+            <section class="panel input-panel">
+                <h2>✏️ 创作描述</h2>
+
+                <div class="form-group">
+                    <label for="prompt">音乐描述</label>
+                    <textarea id="prompt" rows="3"
+                        placeholder="例如：一首忧伤的钢琴与大提琴二重奏，缓慢流淌，带有雨天的氛围"></textarea>
+                    <button class="btn btn-secondary btn-suggest" id="suggest-btn" onclick="suggestParams()">
+                        ✨ AI 推荐参数
+                    </button>
+                    <span class="field-hint">输入描述后点击按钮，AI 会自动推荐风格、调性、速度、乐器等参数，你也可以手动修改</span>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="style">风格</label>
+                        <select id="style">
+                            <option value="classical">古典 Classical</option>
+                            <option value="pop">流行 Pop</option>
+                            <option value="jazz">爵士 Jazz</option>
+                            <option value="rock">摇滚 Rock</option>
+                            <option value="electronic">电子 Electronic</option>
+                            <option value="folk">民谣 Folk</option>
+                            <option value="blues">蓝调 Blues</option>
+                            <option value="latin">拉丁 Latin</option>
+                            <option value="ambient">氛围 Ambient</option>
+                            <option value="cinematic">电影配乐 Cinematic</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="key">调性</label>
+                        <select id="key">
+                            <option value="C">C 大调</option>
+                            <option value="G">G 大调</option>
+                            <option value="D">D 大调</option>
+                            <option value="A">A 大调</option>
+                            <option value="E">E 大调</option>
+                            <option value="F">F 大调</option>
+                            <option value="Bb">Bb 大调</option>
+                            <option value="Eb">Eb 大调</option>
+                            <option value="Am">A 小调</option>
+                            <option value="Em">E 小调</option>
+                            <option value="Dm">D 小调</option>
+                            <option value="Cm">C 小调</option>
+                            <option value="Gm">G 小调</option>
+                            <option value="Fm">F 小调</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="tempo">速度 (BPM)</label>
+                        <div class="range-group">
+                            <input type="range" id="tempo" min="30" max="300" value="120">
+                            <span id="tempo-value" class="range-value">120</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="time-sig">拍号</label>
+                        <select id="time-sig">
+                            <option value="4/4">4/4</option>
+                            <option value="3/4">3/4</option>
+                            <option value="6/8">6/8</option>
+                            <option value="2/4">2/4</option>
+                            <option value="5/4">5/4</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="measures">小节数</label>
+                        <div class="range-group">
+                            <input type="range" id="measures" min="4" max="64" value="16">
+                            <span id="measures-value" class="range-value">16</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="format">输出格式</label>
+                        <select id="format">
+                            <option value="mp3">MP3</option>
+                            <option value="wav">WAV</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>乐器</label>
+                    <div class="instrument-selector">
+                        <div class="instrument-tags" id="instrument-tags">
+                            <span class="tag" data-instrument="piano">🎹 钢琴 <button class="tag-remove">×</button></span>
+                        </div>
+                        <div class="instrument-add">
+                            <select id="add-instrument">
+                                <option value="">+ 添加乐器...</option>
+                                <option value="piano">🎹 钢琴</option>
+                                <option value="violin">🎻 小提琴</option>
+                                <option value="cello">🎻 大提琴</option>
+                                <option value="flute">🎵 长笛</option>
+                                <option value="clarinet">🎵 单簧管</option>
+                                <option value="oboe">🎵 双簧管</option>
+                                <option value="trumpet">🎺 小号</option>
+                                <option value="french horn">🎺 圆号</option>
+                                <option value="trombone">🎺 长号</option>
+                                <option value="acoustic guitar">🎸 吉他</option>
+                                <option value="electric bass">🎸 贝斯</option>
+                                <option value="harp">🎵 竖琴</option>
+                                <option value="drums">🥁 鼓</option>
+                                <option value="vibraphone">🎵 颤音琴</option>
+                                <option value="saxophone">🎷 萨克斯</option>
+                                <option value="string ensemble">🎻 弦乐合奏</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="generate-btn" onclick="generateMusic()">
+                    🎵 生成音乐
+                </button>
+            </section>
+
+            <!-- Result Panel -->
+            <section class="panel result-panel" id="result-panel" style="display:none;">
+                <h2>🎼 生成结果</h2>
+
+                <!-- Progress -->
+                <div class="progress-section" id="progress-section">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">等待中...</p>
+                </div>
+
+                <!-- Score Display -->
+                <div class="score-section" id="score-section" style="display:none;">
+                    <h3 id="score-title">—</h3>
+                    <p class="score-description" id="score-description"></p>
+                    <div class="score-meta" id="score-meta"></div>
+
+                    <!-- Integrated score viewer with cursor -->
+                    <div id="score-render" class="score-render"></div>
+
+                    <!-- Playback controls (synced with score cursor) -->
+                    <div class="playback-controls" id="playback-controls" style="display:none;">
+                        <button class="btn btn-icon-lg" id="btn-play" onclick="togglePlayback()" title="播放/暂停">▶</button>
+                        <button class="btn btn-icon-lg" id="btn-stop" onclick="stopPlayback()" title="停止">⏹</button>
+                        <div class="playback-progress">
+                            <input type="range" id="playback-seek" min="0" max="100" value="0" step="0.1" oninput="seekPlayback(this.value)">
+                            <span class="playback-time" id="playback-time">0:00 / 0:00</span>
+                        </div>
+                        <div class="playback-volume">
+                            <span>🔊</span>
+                            <input type="range" id="playback-volume" min="0" max="100" value="80" oninput="setPlaybackVolume(this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audio Download (keep for file downloads) -->
+                <div class="audio-download" id="audio-section" style="display:none;">
+                    <div class="audio-actions">
+                        <a id="download-link" class="btn btn-secondary" download>⬇ 下载音频</a>
+                        <a id="download-midi" class="btn btn-secondary" download>⬇ 下载 MIDI</a>
+                    </div>
+                </div>
+
+                <!-- Error -->
+                <div class="error-section" id="error-section" style="display:none;">
+                    <p class="error-text" id="error-text"></p>
+                    <button class="btn btn-primary" onclick="retryProject()">🔄 从断点重试</button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="result-actions" id="result-actions" style="display:none;">
+                    <button class="btn btn-primary" onclick="toggleStudio()">🎛️ 打开工作室</button>
+                    <button class="btn btn-secondary" onclick="retryProject()">🔄 重新生成</button>
+                </div>
+
+                <!-- Studio Panel (integrated editing) -->
+                <div class="studio-panel" id="studio-panel" style="display:none;">
+                    <div class="studio-header">
+                        <h3>🎛️ 编辑工作室</h3>
+                        <button class="btn-icon" onclick="toggleStudio()" title="关闭">✕</button>
+                    </div>
+
+                    <!-- 1. One-Click Style Presets -->
+                    <div class="studio-section">
+                        <h4>🎨 一键风格</h4>
+                        <div class="preset-grid">
+                            <button class="preset-btn" onclick="quickRefine('让整体风格更欢快活泼一些，增加跳跃感')">😊 更欢快</button>
+                            <button class="preset-btn" onclick="quickRefine('让整体更忧伤深沉一些，增加感伤氛围')">😢 更忧伤</button>
+                            <button class="preset-btn" onclick="quickRefine('让整体更激昂有力一些，增强气势')">🔥 更激昂</button>
+                            <button class="preset-btn" onclick="quickRefine('让整体更平静舒缓一些，营造放松氛围')">🌊 更平静</button>
+                            <button class="preset-btn" onclick="quickRefine('加入更多和弦，丰富和声层次')">🎶 加和弦</button>
+                            <button class="preset-btn" onclick="quickRefine('简化旋律和编曲，让音乐更清爽简洁')">✨ 简化</button>
+                            <button class="preset-btn" onclick="quickRefine('加强节奏感，让律动更强烈鲜明')">🥁 强节奏</button>
+                            <button class="preset-btn" onclick="quickRefine('让编曲更丰富，增加更多音乐层次和变化')">🎻 更丰富</button>
+                        </div>
+                    </div>
+
+                    <!-- 2. Quick Controls -->
+                    <div class="studio-section">
+                        <h4>⚡ 快速调整</h4>
+                        <div class="quick-controls">
+                            <div class="control-row">
+                                <label>速度</label>
+                                <div class="tempo-adjuster">
+                                    <button class="btn-adj" onclick="studioAdjustTempo(-10)">-10</button>
+                                    <input type="range" id="studio-tempo" min="30" max="300" value="120"
+                                           oninput="document.getElementById('studio-tempo-val').textContent=this.value">
+                                    <span id="studio-tempo-val" class="adj-value">120</span>
+                                    <span class="adj-unit">BPM</span>
+                                    <button class="btn-adj" onclick="studioAdjustTempo(+10)">+10</button>
+                                    <button class="btn btn-sm btn-primary" onclick="applyTempoChange()">应用</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Instrument Tracks -->
+                    <div class="studio-section">
+                        <h4>🎹 乐器轨道</h4>
+                        <div class="track-list" id="studio-tracks">
+                            <p class="empty-state">加载中...</p>
+                        </div>
+                    </div>
+
+                    <!-- 4. AI Audio Feedback -->
+                    <div class="studio-section">
+                        <h4>👂 AI 听音反馈</h4>
+                        <p class="section-desc">让 AI 听生成的音频，自动找出需要改进的地方</p>
+                        <button class="btn btn-primary" id="btn-audio-feedback" onclick="requestAudioFeedback()">
+                            🎧 AI 听音诊断
+                        </button>
+                        <div id="feedback-result" class="feedback-result" style="display:none;">
+                            <div class="feedback-header">
+                                <span class="feedback-rating" id="feedback-rating"></span>
+                                <span class="feedback-comment" id="feedback-comment"></span>
+                            </div>
+                            <div class="feedback-suggestions" id="feedback-suggestions"></div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Free Text AI Edit -->
+                    <div class="studio-section">
+                        <h4>💬 自由描述修改</h4>
+                        <div class="studio-freetext">
+                            <textarea id="studio-refine-prompt" rows="2"
+                                placeholder="用自然语言描述你想要的改动，例如：把钢琴部分改成更活泼的节奏"></textarea>
+                            <div class="studio-freetext-row">
+                                <input type="text" id="studio-refine-section"
+                                    placeholder="指定段落（可选，如：第5-8小节）" class="section-input">
+                                <button class="btn btn-primary" onclick="studioRefine()">🎵 AI 修改</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Advanced: Raw ABC (collapsed) -->
+                    <details class="studio-advanced" id="studio-advanced">
+                        <summary>🔧 高级：编辑 ABC 源码</summary>
+                        <div class="advanced-editor-body">
+                            <div class="adv-editor-grid">
+                                <div class="adv-editor-left">
+                                    <textarea id="abc-editor" rows="12" class="abc-editor-textarea"
+                                        oninput="onEditorInput()"></textarea>
+                                </div>
+                                <div class="adv-editor-right">
+                                    <div id="editor-score-render" class="score-render adv-preview"></div>
+                                </div>
+                            </div>
+                            <div class="adv-editor-actions">
+                                <button class="btn btn-primary" onclick="saveScoreEdit()">💾 保存并重新生成音频</button>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </section>
+
+            <!-- Setup Panel (FluidSynth / SoundFont) -->
+            <section class="panel setup-panel" id="setup-panel" style="display:none;">
+                <h2>🔧 环境设置</h2>
+                <div class="settings-section">
+                    <h3>🎹 FluidSynth</h3>
+                    <p>状态: <span id="fluidsynth-status">检测中...</span></p>
+                    <button class="btn btn-primary" id="btn-install-fluidsynth" onclick="installFluidSynth()">安装 FluidSynth</button>
+                </div>
+                <div class="settings-section">
+                    <h3>🔊 SoundFont 音色库</h3>
+                    <div id="soundfont-list">加载中...</div>
+                    <div class="form-row" style="margin-top:12px;">
+                        <button class="btn btn-secondary" onclick="downloadSoundFont('FluidR3_GM')">下载 FluidR3_GM</button>
+                        <button class="btn btn-secondary" onclick="downloadSoundFont('MuseScore_General')">下载 MuseScore_General</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Studio editing is now integrated in result-panel -->
+        </main>
+        </div><!-- .layout -->
+
+        <footer class="footer">
+            <p>Hachimi Music v0.1.0 · Powered by AI</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
