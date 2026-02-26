@@ -297,6 +297,7 @@
                 <!-- Action Buttons -->
                 <div class="result-actions" id="result-actions" style="display:none;">
                     <button class="btn btn-primary" onclick="toggleStudio()">🎛️ 打开工作室</button>
+                    <button class="btn btn-secondary" onclick="toggleVersionPanel()">📜 版本历史</button>
                     <button class="btn btn-secondary" onclick="retryProject()">🔄 重新生成</button>
                 </div>
 
@@ -414,6 +415,34 @@
                     <div class="form-row" style="margin-top:12px;">
                         <button class="btn btn-secondary" onclick="downloadSoundFont('FluidR3_GM')">下载 FluidR3_GM</button>
                         <button class="btn btn-secondary" onclick="downloadSoundFont('MuseScore_General')">下载 MuseScore_General</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Version History Panel -->
+            <section class="panel version-panel" id="version-panel" style="display:none;">
+                <div class="version-panel-header">
+                    <h2>📜 版本历史</h2>
+                    <div class="version-header-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="saveVersionSnapshot()">📸 保存快照</button>
+                        <button class="btn-icon" onclick="toggleVersionPanel()" title="关闭">✕</button>
+                    </div>
+                </div>
+                <p class="section-desc">每次 AI 修改和手动编辑都会自动记录。随时回退，或从任意节点创建分支。</p>
+                <div id="version-list" class="version-list">
+                    <p class="empty-state">加载中...</p>
+                </div>
+                <!-- Branch dialog (inline) -->
+                <div class="branch-dialog" id="branch-dialog" style="display:none;">
+                    <div class="branch-dialog-inner">
+                        <h4>🌿 创建新分支</h4>
+                        <p class="section-desc" id="branch-dialog-source"></p>
+                        <input type="text" id="branch-name-input"
+                            placeholder="分支名称（如：experiment-1、darker-mood）" />
+                        <div class="branch-dialog-actions">
+                            <button class="btn btn-sm btn-primary" onclick="confirmCreateBranch()">✔ 创建</button>
+                            <button class="btn btn-sm btn-secondary" onclick="closeBranchDialog()">取消</button>
+                        </div>
                     </div>
                 </div>
             </section>

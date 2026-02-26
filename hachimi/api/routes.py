@@ -22,6 +22,7 @@ from hachimi.core.schemas import (
     TaskInfo,
     TaskStatus,
 )
+from hachimi.core.version import VersionManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,6 +32,7 @@ _tasks: dict[str, TaskInfo] = {}
 _results: dict[str, AudioResult] = {}
 _executor = ThreadPoolExecutor(max_workers=2)
 _project_mgr = ProjectManager()
+_version_mgr = VersionManager()
 
 
 # ── Request/Response Models ───────────────────────────────────────────────
@@ -476,6 +478,7 @@ async def get_project(project_id: str):
 async def delete_project(project_id: str):
     """Delete a project and all its files."""
     try:
+        _version_mgr.delete_project_versions(project_id)
         _project_mgr.delete_project(project_id)
         return {"message": "项目已删除"}
     except Exception as e:
@@ -525,6 +528,19 @@ def _run_project_pipeline(project_id: str, resume_from: str | None = None):
         project.audio_file = result.audio_path
     if result.duration_seconds:
         project.duration_seconds = result.duration_seconds
+
+    # Auto-snapshot on fresh (non-resume) generation
+    if result.status == TaskStatus.COMPLETED and result.score and resume_from is None:
+        parent_id = project.current_version_id
+        v = _version_mgr.create_version(
+            project_id=project_id,
+            score=result.score,
+            message="初始生成",
+            source="initial",
+            parent_id=parent_id,
+        )
+        project.current_version_id = v.id
+
     _project_mgr.save_project(project)
 
 
@@ -569,6 +585,7 @@ class RefineRequest(BaseModel):
 
 class ScoreEditRequest(BaseModel):
     abc_notation: str = Field(..., min_length=1)
+    message: Optional[str] = None   # optional label for the auto-snapshot
 
 
 def _run_refine(project_id: str, modification_prompt: str, section: str | None):
@@ -592,6 +609,19 @@ def _run_refine(project_id: str, modification_prompt: str, section: str | None):
         project.score = new_score
         project.checkpoint.stage = "generated"
         project.checkpoint.abc_notation = new_score.abc_notation
+
+        # Auto-snapshot: capture the refined score
+        short_msg = full_prompt[:50] + ("…" if len(full_prompt) > 50 else "")
+        parent_id = project.current_version_id
+        v = _version_mgr.create_version(
+            project_id=project_id,
+            score=new_score,
+            message=f"AI修改: {short_msg}",
+            source="refine",
+            parent_id=parent_id,
+        )
+        project.current_version_id = v.id
+
         _project_mgr.save_project(project)
         _run_project_pipeline(project_id, resume_from="converting")
     except Exception as e:
@@ -627,9 +657,23 @@ async def edit_score(project_id: str, req: ScoreEditRequest):
     if project.score:
         project.score.abc_notation = req.abc_notation
     else:
-        project.score = ScoreResult(title=project.name, abc_notation=req.abc_notation, instruments=[])
+        from hachimi.core.schemas import ScoreResult as _SR
+        project.score = _SR(title=project.name, abc_notation=req.abc_notation, key="C", time_signature="4/4", tempo=120, instruments=[])
     project.checkpoint.stage = "generated"
     project.checkpoint.abc_notation = req.abc_notation
+
+    # Auto-snapshot
+    snap_msg = req.message or "手动编辑 ABC"
+    parent_id = project.current_version_id
+    v = _version_mgr.create_version(
+        project_id=project_id,
+        score=project.score,
+        message=snap_msg,
+        source="manual_edit" if not req.message else "tempo_change" if "速度" in snap_msg else "manual_edit",
+        parent_id=parent_id,
+    )
+    project.current_version_id = v.id
+
     _project_mgr.save_project(project)
     loop = asyncio.get_event_loop()
     loop.run_in_executor(_executor, _run_project_pipeline, project_id, "converting")
@@ -662,6 +706,130 @@ async def audio_feedback(project_id: str):
     except Exception as e:
         logger.error("audio_feedback failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Version Management (Studio history) ──────────────────────────────────
+
+
+class CreateVersionRequest(BaseModel):
+    message: str = Field(default="")
+    source: str = Field(default="manual")
+    parent_id: Optional[str] = None
+    branch_name: str = Field(default="main")
+
+
+class CreateBranchRequest(BaseModel):
+    branch_name: str = Field(..., min_length=1, max_length=100)
+
+
+@router.get("/projects/{project_id}/versions")
+async def list_versions(project_id: str):
+    """List all score versions for a project (newest first)."""
+    try:
+        project = _project_mgr.get_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    versions = _version_mgr.list_versions(project_id)
+    return {
+        "versions": versions,
+        "current_version_id": project.current_version_id,
+    }
+
+
+@router.post("/projects/{project_id}/versions")
+async def create_version(project_id: str, req: CreateVersionRequest):
+    """Manually save the current score as a named snapshot."""
+    try:
+        project = _project_mgr.get_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not project.score:
+        raise HTTPException(status_code=400, detail="项目还没有谱子")
+
+    parent_id = req.parent_id or project.current_version_id
+    v = _version_mgr.create_version(
+        project_id=project_id,
+        score=project.score,
+        message=req.message or "手动快照",
+        source=req.source,
+        parent_id=parent_id,
+        branch_name=req.branch_name,
+    )
+    project.current_version_id = v.id
+    _project_mgr.save_project(project)
+    return {
+        "version": {
+            "id": v.id,
+            "version_number": v.version_number,
+            "message": v.message,
+            "branch_name": v.branch_name,
+            "source": v.source,
+            "created_at": v.created_at,
+        }
+    }
+
+
+@router.post("/projects/{project_id}/versions/{version_id}/checkout")
+async def checkout_version(project_id: str, version_id: str):
+    """Restore a project's score to a specific version and re-render audio."""
+    try:
+        project = _project_mgr.get_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    score = _version_mgr.get_version_score(version_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="版本不存在")
+
+    project.score = score
+    project.checkpoint.stage = "generated"
+    project.checkpoint.abc_notation = score.abc_notation
+    project.current_version_id = version_id
+    _project_mgr.save_project(project)
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(_executor, _run_project_pipeline, project_id, "converting")
+    return {"message": "已回退到此版本，正在重新生成音频", "project_id": project_id}
+
+
+@router.post("/projects/{project_id}/versions/{version_id}/branch")
+async def branch_from_version(project_id: str, version_id: str, req: CreateBranchRequest):
+    """Fork a new branch from an existing version snapshot."""
+    try:
+        _project_mgr.get_project(project_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    v = _version_mgr.create_branch_version(
+        project_id=project_id,
+        from_version_id=version_id,
+        branch_name=req.branch_name,
+    )
+    if v is None:
+        raise HTTPException(status_code=404, detail="源版本不存在")
+
+    return {
+        "version": {
+            "id": v.id,
+            "version_number": v.version_number,
+            "branch_name": v.branch_name,
+            "message": v.message,
+            "source": v.source,
+            "created_at": v.created_at,
+        }
+    }
+
+
+@router.delete("/projects/{project_id}/versions/{version_id}")
+async def delete_version(project_id: str, version_id: str):
+    """Delete a version (fails if other versions reference it as parent)."""
+    ok = _version_mgr.delete_version(version_id)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="无法删除：该版本有子版本引用，请先删除子版本",
+        )
+    return {"message": "版本已删除"}
 
 
 # ── Setup: FluidSynth & SoundFont ────────────────────────────────────────

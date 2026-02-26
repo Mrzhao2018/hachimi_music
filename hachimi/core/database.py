@@ -52,3 +52,28 @@ def reset_engine():
     if _engine:
         _engine.dispose()
     _engine = None
+
+
+def migrate_db(engine=None):
+    """Apply incremental ALTER TABLE migrations for columns added after initial deploy.
+
+    Safe to run on every startup — each statement is wrapped in try/except so
+    existing columns are silently ignored.
+    """
+    from sqlalchemy import text
+
+    if engine is None:
+        engine = get_engine()
+
+    migrations = [
+        "ALTER TABLE projects ADD COLUMN current_version_id TEXT",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in migrations:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+                logger.info("DB migration applied: %s", stmt)
+            except Exception:
+                pass  # column already exists or table doesn't exist yet

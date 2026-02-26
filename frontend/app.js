@@ -992,15 +992,15 @@ function applyTempoChange() {
     }
 
     // Save via score edit endpoint
-    saveModifiedAbc(modified);
+    saveModifiedAbc(modified, `速度调整: ${newTempo} BPM`);
 }
 
-async function saveModifiedAbc(abc) {
+async function saveModifiedAbc(abc, message) {
     try {
         const res = await fetch(`${API_BASE}/projects/${currentProjectId}/score`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ abc_notation: abc }),
+            body: JSON.stringify({ abc_notation: abc, message: message || null }),
         });
         if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
         document.getElementById('studio-panel').style.display = 'none';
@@ -1127,6 +1127,280 @@ async function applySuggestion(index) {
 
     // Use quickRefine to apply the suggestion
     await quickRefine(prompt);
+}
+
+// ── Version History ─────────────────────────────────────────
+
+let _currentVersionId = null;       // tracks which version is "active"
+let _branchFromVersionId = null;    // used by branch dialog
+
+function toggleVersionPanel() {
+    if (!currentProjectId) { alert('请先选择一个项目'); return; }
+    const panel = document.getElementById('version-panel');
+    const isHidden = panel.style.display === 'none';
+    panel.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+        loadVersions();
+        panel.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+async function loadVersions() {
+    if (!currentProjectId) return;
+    const container = document.getElementById('version-list');
+    container.innerHTML = '<p class="empty-state">加载中...</p>';
+    try {
+        const res = await fetch(`${API_BASE}/projects/${currentProjectId}/versions`);
+        if (!res.ok) throw new Error('获取版本列表失败');
+        const data = await res.json();
+        _currentVersionId = data.current_version_id;
+        container.innerHTML = renderVersionGraph(data.versions, _currentVersionId);
+    } catch (e) {
+        container.innerHTML = `<p class="empty-state" style="color:var(--error)">加载失败: ${e.message}</p>`;
+    }
+}
+
+/**
+ * Build an SVG git-graph + version entry list.
+ *
+ * Layout:
+ *   [SVG rail (fixed-width)]  [version cards (flex:1)]
+ *
+ * Each row is NODE_H px tall; SVG circle centers match row midpoints.
+ */
+function renderVersionGraph(versions, currentVersionId) {
+    if (!versions || versions.length === 0) {
+        return '<p class="empty-state">还没有版本记录。<br>生成音乐后版本历史会自动保存在这里。</p>';
+    }
+
+    const NODE_H = 88;
+    const LANE_W = 26;
+    const NODE_R = 7;
+    const BRANCH_COLORS = ['#7c5bf5', '#22c55e', '#f59e0b', '#38bdf8', '#ef4444', '#ec4899'];
+
+    // Assign lanes + colors, in chronological order (oldest first)
+    const branchInfo = {};
+    let nextLane = 0;
+    [...versions].reverse().forEach(v => {
+        if (!branchInfo[v.branch_name]) {
+            branchInfo[v.branch_name] = {
+                color: BRANCH_COLORS[nextLane % BRANCH_COLORS.length],
+                lane: nextLane++,
+            };
+        }
+    });
+
+    const laneCount = Math.max(1, Object.keys(branchInfo).length);
+    const svgW = laneCount * LANE_W + 16;
+    const svgH = versions.length * NODE_H;
+
+    // Index map: id → row index (newest = 0)
+    const idxMap = {};
+    versions.forEach((v, i) => { idxMap[v.id] = i; });
+
+    // ── SVG edges ──────────────────────────────────────────
+    let svgEdges = '';
+    versions.forEach((v, i) => {
+        if (!v.parent_id || idxMap[v.parent_id] === undefined) return;
+        const pIdx = idxMap[v.parent_id];
+        const cb = branchInfo[v.branch_name];
+        const pb = branchInfo[versions[pIdx].branch_name];
+        const x1 = cb.lane * LANE_W + 13;
+        const y1 = i * NODE_H + NODE_H / 2;
+        const x2 = pb.lane * LANE_W + 13;
+        const y2 = pIdx * NODE_H + NODE_H / 2;
+
+        if (x1 === x2) {
+            svgEdges += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                stroke="${cb.color}" stroke-width="2" opacity="0.55"/>`;
+        } else {
+            const mx = x1, my = (y1 + y2) / 2;
+            svgEdges += `<path d="M${x1} ${y1} C${mx} ${my} ${x2} ${my} ${x2} ${y2}"
+                stroke="${cb.color}" stroke-width="2" fill="none" opacity="0.55"/>`;
+        }
+    });
+
+    // ── SVG nodes ──────────────────────────────────────────
+    let svgNodes = '';
+    versions.forEach((v, i) => {
+        const b = branchInfo[v.branch_name];
+        const cx = b.lane * LANE_W + 13;
+        const cy = i * NODE_H + NODE_H / 2;
+        const isCurr = v.id === currentVersionId;
+        if (isCurr) {
+            svgNodes += `<circle cx="${cx}" cy="${cy}" r="${NODE_R + 4}"
+                fill="${b.color}22" stroke="${b.color}" stroke-width="1.5"/>`;
+        }
+        svgNodes += `<circle cx="${cx}" cy="${cy}" r="${NODE_R}"
+            fill="${b.color}" stroke="${isCurr ? '#fff' : 'transparent'}" stroke-width="2.5"/>`;
+        if (isCurr) {
+            svgNodes += `<circle cx="${cx}" cy="${cy}" r="3" fill="#fff"/>`;
+        }
+    });
+
+    const svg = `<svg width="${svgW}" height="${svgH}" class="vg-svg"
+        style="min-width:${svgW}px">${svgEdges}${svgNodes}</svg>`;
+
+    // Source label map
+    const srcLabel = {
+        initial:     '🌱 初始生成',
+        refine:      '🤖 AI修改',
+        manual_edit: '✏️ 手动编辑',
+        tempo_change:'⏱ 速度调整',
+        branch:      '🌿 分叉',
+        manual:      '📸 快照',
+    };
+
+    // ── Version entry rows ──────────────────────────────────
+    const entries = versions.map((v, i) => {
+        const b = branchInfo[v.branch_name];
+        const isCurr = v.id === currentVersionId;
+        const dt = new Date(v.created_at);
+        const dateStr = `${(dt.getMonth()+1).toString().padStart(2,'0')}-${dt.getDate().toString().padStart(2,'0')} ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
+
+        return `
+        <div class="vg-entry${isCurr ? ' vg-entry-current' : ''}" style="height:${NODE_H}px">
+            <div class="vg-entry-body">
+                <div class="vg-entry-row1">
+                    <span class="vg-branch-tag" style="--bc:${b.color}">${v.branch_name}</span>
+                    <span class="vg-vnum">v${v.version_number}</span>
+                    <span class="vg-msg">${escHtml(v.message)}</span>
+                    ${isCurr ? '<span class="vg-curr-badge">● 当前</span>' : ''}
+                </div>
+                <div class="vg-entry-row2">
+                    <span class="vg-src-tag">${srcLabel[v.source] || v.source}</span>
+                    <span class="vg-date">${dateStr}</span>
+                </div>
+            </div>
+            <div class="vg-entry-acts">
+                <button class="btn btn-sm${isCurr ? ' btn-secondary' : ' btn-primary'}"
+                    onclick="${isCurr ? '' : `checkoutVersion('${v.id}')`}"
+                    ${isCurr ? 'disabled' : ''}>
+                    ${isCurr ? '当前' : '⏪ 回退'}
+                </button>
+                <button class="btn btn-sm btn-secondary vg-btn-branch"
+                    onclick="showBranchDialog('${v.id}', ${v.version_number})"
+                    title="从此版本创建分支">🌿</button>
+                <button class="btn btn-sm btn-danger vg-btn-del"
+                    onclick="deleteVersion('${v.id}')"
+                    ${isCurr ? 'disabled' : ''}
+                    title="删除此版本">🗑</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+    <div class="vg-wrap">
+        <div class="vg-rail">${svg}</div>
+        <div class="vg-entries">${entries}</div>
+    </div>`;
+}
+
+function escHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function saveVersionSnapshot() {
+    if (!currentProjectId) return;
+    const msg = prompt('为此快照写一个说明（可留空）：', '');
+    if (msg === null) return; // cancelled
+    try {
+        const res = await fetch(`${API_BASE}/projects/${currentProjectId}/versions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg || '手动快照', source: 'manual' }),
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+        await loadVersions();
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+async function checkoutVersion(versionId) {
+    if (!currentProjectId) return;
+    if (!confirm('确定回退到此版本？当前音频将重新生成。')) return;
+
+    try {
+        const res = await fetch(
+            `${API_BASE}/projects/${currentProjectId}/versions/${versionId}/checkout`,
+            { method: 'POST' }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+        // Close version panel, show progress
+        document.getElementById('version-panel').style.display = 'none';
+        showResultPanel();
+        hideResultSections();
+        showProgress('正在回退并重新生成音频...');
+        startProjectPolling(currentProjectId);
+    } catch (e) {
+        alert('回退失败: ' + e.message);
+    }
+}
+
+function showBranchDialog(versionId, versionNum) {
+    _branchFromVersionId = versionId;
+    document.getElementById('branch-dialog-source').textContent =
+        `从 v${versionNum} 分叉的新分支将独立演变，不影响原始历史。`;
+    document.getElementById('branch-name-input').value = '';
+    document.getElementById('branch-dialog').style.display = 'flex';
+    document.getElementById('branch-name-input').focus();
+}
+
+function closeBranchDialog() {
+    document.getElementById('branch-dialog').style.display = 'none';
+    _branchFromVersionId = null;
+}
+
+async function confirmCreateBranch() {
+    if (!_branchFromVersionId || !currentProjectId) return;
+    const name = document.getElementById('branch-name-input').value.trim();
+    if (!name) { alert('请输入分支名称'); return; }
+
+    try {
+        const res = await fetch(
+            `${API_BASE}/projects/${currentProjectId}/versions/${_branchFromVersionId}/branch`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branch_name: name }),
+            }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+        closeBranchDialog();
+        await loadVersions();
+    } catch (e) {
+        alert('创建分支失败: ' + e.message);
+    }
+}
+
+async function deleteVersion(versionId) {
+    if (!confirm('确定删除此版本？如果有子版本则无法删除。')) return;
+    try {
+        const res = await fetch(
+            `${API_BASE}/projects/${currentProjectId}/versions/${versionId}`,
+            { method: 'DELETE' }
+        );
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+        await loadVersions();
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+// Also refresh versions panel when generation/refine completes
+const _origShowProjectResult = showProjectResult;
+function showProjectResult(project) {
+    _origShowProjectResult(project);
+    // Reload version history if the version panel is visible
+    const vp = document.getElementById('version-panel');
+    if (vp && vp.style.display !== 'none') {
+        loadVersions();
+    }
 }
 // ── Advanced ABC Editor ─────────────────────────────────────
 

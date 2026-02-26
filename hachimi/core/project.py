@@ -19,7 +19,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from sqlmodel import Field as SQLField, Session, SQLModel, select
 
-from hachimi.core.database import create_db_and_tables, get_engine
+from hachimi.core.database import create_db_and_tables, get_engine, migrate_db
 from hachimi.core.schemas import (
     MusicRequest,
     MusicStyle,
@@ -77,6 +77,9 @@ class Project(BaseModel):
     duration_seconds: Optional[float] = None
     output_format: OutputFormat = OutputFormat.MP3
 
+    # Version tracking (set by VersionManager on each save)
+    current_version_id: Optional[str] = None
+
 
 # ── SQLModel DB table ─────────────────────────────────────────────────────
 
@@ -106,6 +109,9 @@ class ProjectRow(SQLModel, table=True):
     audio_file: Optional[str] = SQLField(default=None)
 
     duration_seconds: Optional[float] = SQLField(default=None)
+
+    # Version tracking — updated by VersionManager after each auto-snapshot
+    current_version_id: Optional[str] = SQLField(default=None)
 
 
 # ── Conversion helpers ────────────────────────────────────────────────────
@@ -138,6 +144,7 @@ def _row_to_project(row: ProjectRow) -> Project:
         audio_file=row.audio_file,
         duration_seconds=row.duration_seconds,
         output_format=OutputFormat(row.output_format),
+        current_version_id=row.current_version_id,
     )
 
 
@@ -157,6 +164,7 @@ def _project_to_row(project: Project) -> ProjectRow:
         wav_file=project.wav_file,
         audio_file=project.audio_file,
         duration_seconds=project.duration_seconds,
+        current_version_id=project.current_version_id,
     )
 
 
@@ -172,6 +180,7 @@ class ProjectManager:
         self.projects_dir = projects_dir or PROJECTS_DIR
         self.projects_dir.mkdir(parents=True, exist_ok=True)
         create_db_and_tables(db_path)
+        migrate_db(get_engine(db_path))
         self._engine = get_engine(db_path)
 
     # ── helpers ────────────────────────────────────────────────────────
@@ -237,6 +246,7 @@ class ProjectManager:
                 existing.wav_file = row.wav_file
                 existing.audio_file = row.audio_file
                 existing.duration_seconds = row.duration_seconds
+                existing.current_version_id = row.current_version_id
                 session.add(existing)
             else:
                 session.add(row)

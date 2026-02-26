@@ -1273,3 +1273,229 @@ input[type="range"]::-webkit-slider-thumb {
 .proj-delete:hover {
     color: var(--error);
 }
+/* ── Version History Panel ──────────────────────────────── */
+.version-panel {
+    border-left: 3px solid var(--primary);
+}
+
+.version-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.version-panel-header h2 {
+    margin-bottom: 0;
+}
+
+.version-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.version-list {
+    min-height: 60px;
+}
+
+/* ── Version Graph ──────────────────────────────────────── */
+.vg-wrap {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    overflow-x: auto;
+}
+
+.vg-rail {
+    flex-shrink: 0;
+    position: relative;
+    /* align with entries */
+}
+
+.vg-svg {
+    display: block;
+}
+
+.vg-entries {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Single version row */
+.vg-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 12px 0 10px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+
+.vg-entry:hover {
+    background: var(--bg-input);
+}
+
+.vg-entry-current {
+    background: rgba(124, 91, 245, 0.07);
+}
+
+.vg-entry-current:hover {
+    background: rgba(124, 91, 245, 0.12);
+}
+
+.vg-entry-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+}
+
+.vg-entry-row1 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.vg-entry-row2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.vg-branch-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--bc) 15%, transparent);
+    color: var(--bc);
+    border: 1px solid color-mix(in srgb, var(--bc) 35%, transparent);
+    flex-shrink: 0;
+}
+
+.vg-vnum {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    font-family: 'Fira Code', monospace;
+}
+
+.vg-msg {
+    font-size: 0.88rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.vg-curr-badge {
+    font-size: 0.72rem;
+    color: var(--primary);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.vg-src-tag {
+    font-size: 0.75rem;
+    color: var(--accent);
+}
+
+.vg-date {
+    font-size: 0.73rem;
+    color: var(--text-dim);
+}
+
+.vg-entry-acts {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.vg-btn-branch,
+.vg-btn-del {
+    padding: 5px 8px;
+    min-width: unset;
+    font-size: 0.85rem;
+}
+
+/* danger button variant */
+.btn-danger {
+    background: transparent;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: var(--error);
+}
+
+.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--error);
+}
+
+.btn-danger:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* ── Branch Dialog ──────────────────────────────────────── */
+.branch-dialog {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.branch-dialog-inner {
+    background: var(--bg-card);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 380px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: var(--shadow);
+}
+
+.branch-dialog-inner h4 {
+    font-size: 1rem;
+    color: var(--primary);
+}
+
+.branch-dialog-inner input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.branch-dialog-inner input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.branch-dialog-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.branch-dialog-actions .btn {
+    flex: 1;
+    justify-content: center;
+}
