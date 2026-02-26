@@ -17,17 +17,18 @@ You are an expert music composer. Write ABC notation for a piece of music.
 ## CRITICAL REQUIREMENTS
 - You MUST write EXACTLY {measures} measures for EACH voice. Count carefully!
 - Each voice must have its own complete section with all {measures} measures
-- For multi-voice pieces, use INTERLEAVED format: alternate [V:1]/[V:2] blocks every few measures so voices play SIMULTANEOUSLY. Do NOT write all V:1 first then all V:2 (that causes sequential instead of simultaneous playback).
+- Write each voice's notes in a SEPARATE block (not interleaved on the same line)
 - Make sure each instrument plays idiomatic parts (e.g. cello plays in bass clef range, flute in treble)
 
 ## ABC Notation Rules
 - Start with: X:1, T:{title}, M:{time_signature}, L:1/8, Q:1/4={tempo}, K:{key}
-- Declare all voices in the header: V:1 name="Piano" clef=treble, V:2 name="Cello" clef=bass, etc.
-- Then use inline [V:n] markers to interleave voices. Example format:
-  [V:1] measure1 | measure2 | measure3 | measure4 |
-  [V:2] measure1 | measure2 | measure3 | measure4 |
-  [V:1] measure5 | measure6 | measure7 | measure8 |
-  [V:2] measure5 | measure6 | measure7 | measure8 |
+- For multiple instruments use V: directives with clef: V:1 name="Piano" clef=treble, V:2 name="Cello" clef=bass, etc.
+- Write ALL notes for Voice 1 first, then ALL notes for Voice 2, etc.
+- Format:
+  V:1 name="Piano" clef=treble
+  (all {measures} measures of piano here)
+  V:2 name="Cello" clef=bass
+  (all {measures} measures of cello here)
 - Standard note names: C D E F G A B c d e f g a b
 - Octave: C,=below middle, C=middle, c=above, c'=two above
 - Accidentals: ^F (sharp), _B (flat), =F (natural)

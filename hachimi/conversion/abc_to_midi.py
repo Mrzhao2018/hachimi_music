@@ -14,6 +14,76 @@ from hachimi.core.schemas import InstrumentAssignment, ScoreResult
 logger = logging.getLogger(__name__)
 
 
+def _normalize_abc_voices(abc: str) -> str:
+    """
+    Normalize ABC voice format for music21 compatibility.
+
+    music21 correctly parses the BLOCK format:
+        V:1 name="Piano" clef=treble
+        (all V:1 notes)
+        V:2 name="Cello" clef=bass
+        (all V:2 notes)
+
+    But it FAILS with inline [V:n] marker format:
+        V:1 name="Piano"
+        V:2 name="Cello"
+        [V:1] notes...
+        [V:2] notes...
+
+    This function detects the inline [V:n] format and converts it to block format.
+    If the ABC already uses block format, it is returned unchanged.
+    """
+    import re
+
+    lines = abc.strip().split('\n')
+    has_inline = any(re.match(r'^\[V:', line) for line in lines)
+    if not has_inline:
+        return abc
+
+    logger.debug("Detected inline [V:n] format — converting to block format for music21")
+
+    header_lines: list[str] = []
+    v_decls: dict[str, str] = {}          # voice_id → full V: declaration line
+    voice_contents: dict[str, list[str]] = {}
+    voice_order: list[str] = []
+    current_voice: str | None = None
+
+    for line in lines:
+        m = re.match(r'^\[V:([^\]]+)\]\s*(.*)', line.rstrip())
+        if m:
+            vid = m.group(1).strip()
+            rest = m.group(2).strip()
+            current_voice = vid
+            if vid not in voice_contents:
+                voice_contents[vid] = []
+                voice_order.append(vid)
+            if rest:
+                voice_contents[vid].append(rest)
+        elif current_voice is not None:
+            # Continuation line for current voice (could be empty — skip)
+            stripped = line.rstrip()
+            if stripped:
+                voice_contents[current_voice].append(stripped)
+        else:
+            # Header area (before any [V:n] tag)
+            m2 = re.match(r'^V:([^\s\]]+)(.*)', line.rstrip())
+            if m2:
+                vid = m2.group(1).strip()
+                v_decls[vid] = line.rstrip()
+            else:
+                header_lines.append(line.rstrip())
+
+    # Rebuild: pure headers first, then each voice block
+    result: list[str] = list(header_lines)
+    for vid in voice_order:
+        result.append(v_decls.get(vid, f'V:{vid}'))
+        result.extend(voice_contents.get(vid, []))
+
+    normalized = '\n'.join(result)
+    logger.debug("Normalized ABC:\n%s", normalized[:400])
+    return normalized
+
+
 def parse_abc(abc_notation: str):
     """
     Parse ABC notation string into a music21 Score object.
@@ -26,13 +96,15 @@ def parse_abc(abc_notation: str):
     """
     import music21
 
+    # Normalize [V:n] inline format → block format before parsing
+    abc_notation = _normalize_abc_voices(abc_notation)
+
     try:
         score = music21.converter.parse(abc_notation, format="abc")
     except Exception as e:
         raise ValueError(f"Failed to parse ABC notation: {e}") from e
 
-    # Fix part offsets: some ABC formats (all V:1 measures before all V:2 measures)
-    # cause music21 to place voices SEQUENTIALLY instead of simultaneously.
+    # Fix part offsets: some ABC formats cause music21 to place voices sequentially.
     # Reset every Part to offset 0 so all voices play in parallel.
     for part in score.parts:
         if part.offset != 0:
