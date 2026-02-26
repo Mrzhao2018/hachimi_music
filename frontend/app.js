@@ -259,6 +259,8 @@ function startProjectPolling(projectId) {
             if (p.status === 'completed') {
                 clearInterval(pollInterval);
                 pollInterval = null;
+                // Always hide progress bar, even if audio_file is absent
+                document.getElementById('progress-section').style.display = 'none';
                 showProjectResult(p);
                 resetButton();
                 loadProjectList();

@@ -518,34 +518,45 @@ def _run_project_pipeline(project_id: str, resume_from: str | None = None):
         project_id=project.id,
     )
 
-    project = _project_mgr.get_project(project_id)
-    project.status = result.status
-    if result.score:
-        project.score = result.score
-    if result.midi_path:
-        project.midi_file = result.midi_path
-    if result.audio_path:
-        project.audio_file = result.audio_path
-    if result.duration_seconds:
-        project.duration_seconds = result.duration_seconds
+    try:
+        project = _project_mgr.get_project(project_id)
+        project.status = result.status
+        if result.score:
+            project.score = result.score
+        if result.midi_path:
+            project.midi_file = result.midi_path
+        if result.audio_path:
+            project.audio_file = result.audio_path
+        if result.duration_seconds:
+            project.duration_seconds = result.duration_seconds
 
-    # Auto-snapshot on fresh (non-resume) generation
-    # Wrapped in try/except so a snapshot failure never blocks save_project.
-    if result.status == TaskStatus.COMPLETED and result.score and resume_from is None:
+        # Auto-snapshot on fresh (non-resume) generation
+        # Wrapped in try/except so a snapshot failure never blocks save_project.
+        if result.status == TaskStatus.COMPLETED and result.score and resume_from is None:
+            try:
+                parent_id = project.current_version_id
+                v = _version_mgr.create_version(
+                    project_id=project_id,
+                    score=result.score,
+                    message="初始生成",
+                    source="initial",
+                    parent_id=parent_id,
+                )
+                project.current_version_id = v.id
+            except Exception as _ve:
+                logger.warning("Version snapshot failed (non-fatal): %s", _ve)
+
+        _project_mgr.save_project(project)
+    except Exception as _save_err:
+        # Pipeline finished but the final DB write failed — mark project as failed
+        # so the frontend doesn't stay stuck on "generating" forever.
+        logger.error("Failed to persist pipeline result for %s: %s", project_id, _save_err, exc_info=True)
         try:
-            parent_id = project.current_version_id
-            v = _version_mgr.create_version(
-                project_id=project_id,
-                score=result.score,
-                message="初始生成",
-                source="initial",
-                parent_id=parent_id,
-            )
-            project.current_version_id = v.id
-        except Exception as _ve:
-            logger.warning("Version snapshot failed (non-fatal): %s", _ve)
-
-    _project_mgr.save_project(project)
+            _stuck = _project_mgr.get_project(project_id)
+            _stuck.status = result.status  # preserve COMPLETED/FAILED from pipeline
+            _project_mgr.save_project(_stuck)
+        except Exception:
+            logger.error("Could not recover project status for %s — project may stay stuck", project_id)
 
 
 @router.post("/projects/{project_id}/generate")
