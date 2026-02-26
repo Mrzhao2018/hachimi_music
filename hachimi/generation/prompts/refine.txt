@@ -33,6 +33,13 @@ Instruments: {instruments}
 4. The `abc_notation` field must contain the FULL modified score (not just the changed section).
 5. Do NOT use repeat signs (|: :|) — write out all measures explicitly.
 6. Output ONLY the JSON, no markdown fences, no extra text.
+7. For multi-voice scores, use INTERLEAVED voice format — alternate [V:1] and [V:2] blocks measure-by-measure or section-by-section, NOT all V:1 first then all V:2. This ensures correct simultaneous playback. Example:
+```
+[V:1] measure1 | measure2 |
+[V:2] measure1 | measure2 |
+[V:1] measure3 | measure4 |
+[V:2] measure3 | measure4 |
+```
 
 ## Output Format
 

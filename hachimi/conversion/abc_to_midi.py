@@ -28,9 +28,21 @@ def parse_abc(abc_notation: str):
 
     try:
         score = music21.converter.parse(abc_notation, format="abc")
-        return score
     except Exception as e:
         raise ValueError(f"Failed to parse ABC notation: {e}") from e
+
+    # Fix part offsets: some ABC formats (all V:1 measures before all V:2 measures)
+    # cause music21 to place voices SEQUENTIALLY instead of simultaneously.
+    # Reset every Part to offset 0 so all voices play in parallel.
+    for part in score.parts:
+        if part.offset != 0:
+            logger.warning(
+                "Part '%s' has non-zero offset %.2f — resetting to 0 for parallel playback",
+                getattr(part, 'id', '?'), part.offset,
+            )
+            part.offset = 0.0
+
+    return score
 
 
 def apply_instruments_to_score(

@@ -93,11 +93,20 @@ def _wrap_raw_abc(text: str) -> dict:
             name_match = re.search(r'name="([^"]+)"', line_s)
             voice_id = v_match.group(1) if v_match else str(len(instruments) + 1)
             voice_name = name_match.group(1) if name_match else f"Voice {voice_id}"
+            # Infer instrument from voice_name so Cello/Violin etc. get the right GM program
+            from hachimi.conversion.instrument_mapper import lookup_instrument as _lookup
+            guessed_instrument = voice_name  # e.g. "Cello", "Piano Melody"
+            gm_prog = _lookup(voice_name)
+            if gm_prog == 0 and voice_name.lower() not in ("piano", "acoustic grand piano", "melody", "accompaniment"):
+                # lookup returned default — try stripping adjectives ("Piano Melody" → "Piano")
+                first_word = voice_name.split()[0]
+                gm_prog = _lookup(first_word)
+                guessed_instrument = first_word
             instruments.append({
                 "voice_id": voice_id,
                 "voice_name": voice_name,
-                "instrument": "Acoustic Grand Piano",
-                "gm_program": 0,
+                "instrument": guessed_instrument,
+                "gm_program": gm_prog,
             })
 
     if not instruments:
