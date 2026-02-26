@@ -29,9 +29,10 @@
 | **音频合成** | FluidSynth (midi2audio) | SoundFont 采样合成，MIDI → WAV |
 | **音频后处理** | pedalboard (Spotify) + pydub | 混响/压缩/归一化 + 格式转换 |
 | **前端** | 原生 HTML/CSS/JS + abcjs | 零依赖构建，五线谱实时渲染 |
+| **数据库** | SQLite + SQLModel | 项目元数据持久化，支持分页/标签/并发 |
 | **数据验证** | Pydantic v2 | 请求/响应模型，配置管理 |
 | **配置** | YAML + pydantic-settings | 分层配置，运行时热更新 |
-| **测试** | pytest + pytest-asyncio | 39 个测试用例，覆盖全部模块 |
+| **测试** | pytest + pytest-asyncio | 52 个测试用例，覆盖全部模块 |
 
 ## 📁 项目结构
 
@@ -44,7 +45,8 @@ hachimi_music/
 │   │   ├── schemas.py          # Pydantic 数据模型
 │   │   ├── pipeline.py         # 四阶段生成管线
 │   │   ├── config.py           # YAML 配置加载
-│   │   └── project.py          # 项目持久化管理
+│   │   ├── database.py         # SQLite 引擎 + session 管理
+│   │   └── project.py          # 项目 CRUD（SQLModel + Pydantic）
 │   ├── generation/
 │   │   ├── llm_generator.py    # LLM 作曲/改编/分析
 │   │   └── prompts/            # 8 个 Prompt 模板
@@ -63,10 +65,12 @@ hachimi_music/
 ├── scripts/
 │   ├── generate.py             # CLI 命令行入口
 │   ├── download_soundfonts.py  # SoundFont 下载器
-│   └── install_fluidsynth.py   # FluidSynth 安装器
-├── tests/                      # 测试套件（6 个模块）
+│   ├── install_fluidsynth.py   # FluidSynth 安装器
+│   └── migrate_to_sqlite.py    # 旧 JSON 项目迁移脚本
+├── tests/                      # 测试套件（7 个模块，52 个用例）
+├── data/                       # SQLite 数据库 hachimi.db（.gitignore）
 ├── soundfonts/                 # SoundFont 音色库（.gitignore）
-├── projects/                   # 项目数据持久化（.gitignore）
+├── projects/                   # 项目音频/MIDI 文件目录（.gitignore）
 ├── output/                     # 生成输出文件（.gitignore）
 └── pyproject.toml              # 项目元数据与依赖
 ```
@@ -142,6 +146,16 @@ uvicorn hachimi.api.routes:app --port 8001
 2. **下载 SoundFont** —— 选择 MuseScore_General（208MB，推荐）或 FluidR3_GM（148MB）
 
 > 💡 如果不安装 FluidSynth，系统会自动降级使用 pretty_midi 内置合成器（音质较基础）。
+
+### 迁移旧版 JSON 数据（升级用户）
+
+如果你在 SQLite 升级前已有 `projects/` 目录（JSON 文件格式），运行一次迁移脚本：
+
+```bash
+python -m scripts.migrate_to_sqlite
+```
+
+脚本会扫描所有 `projects/<uuid>/project.json` 并写入 `data/hachimi.db`，原文件保留不删除。
 
 ### CLI 命令行使用
 
@@ -312,10 +326,10 @@ pytest tests/ -v
 
 # 运行特定模块
 pytest tests/test_conversion.py -v
-pytest tests/test_generation.py -v
+pytest tests/test_project_db.py -v
 ```
 
-测试覆盖 6 个模块，共 39 个测试用例：
+测试覆盖 7 个模块，共 52 个测试用例：
 
 | 模块 | 测试内容 |
 |------|----------|
@@ -325,6 +339,7 @@ pytest tests/test_generation.py -v
 | `test_generation.py` | JSON 提取、代码块解析、空白处理、异常抛出 |
 | `test_instrument_mapper.py` | 精确/模糊匹配、中文乐器名、通道分配、打击乐 |
 | `test_schemas.py` | 请求模型默认值、边界校验、任务 ID 唯一性 |
+| `test_project_db.py` | 项目 CRUD、检查点、Score 序列化、分页排序、并发安全 |
 
 ## ⚙️ 配置说明
 
@@ -395,6 +410,7 @@ OPENAI_API_KEY=sk-xxxxx
 12. **AI 改编** —— `refine()` 方法支持自然语言描述修改意图，AI 在现有乐谱基础上改编
 13. **AI 参数推荐** —— `suggest_params()` 从描述自动推荐风格、调性、速度、乐器编配
 14. **AI 听音诊断** —— 多模态音频分析（Gemini `input_audio`），支持降级为谱面分析，评分 + 建议 + 一键应用
+15. **SQLite 数据库** —— 将项目元数据从 JSON 文件迁移至 SQLite，SQLModel 提供 ORM；公共 API 完全兼容，内置迁移脚本支持旧数据一键导入
 
 ### 技术亮点
 
@@ -402,6 +418,7 @@ OPENAI_API_KEY=sk-xxxxx
 - **鲁棒的 ABC 解析** —— 启发式检测裸 ABC 文本、自动包装、结构验证、截断检测
 - **多模态分析验证** —— 返回 `audio_analyzed` 标识和 token 用量日志，确认音频被实际分析
 - **深度错误恢复** —— 编辑失败不丢失原有乐谱和音频，管线断点续作
+- **SQLite 双层隔离** —— `ProjectRow`（SQLModel）与 `Project`（Pydantic）解耦，调用方零修改；嵌套对象序列化为 JSON 列，索引列支持分页/标签/状态过滤
 
 ## 📜 许可证
 

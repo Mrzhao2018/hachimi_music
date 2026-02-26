@@ -25,6 +25,9 @@ lib/
 # Projects data
 projects/
 
+# Database
+data/
+
 # Environment
 .env
 *.env
