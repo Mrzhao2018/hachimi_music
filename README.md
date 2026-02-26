@@ -11,6 +11,7 @@
 - **10 种音乐风格** —— Classical / Pop / Jazz / Rock / Electronic / Folk / Blues / Latin / Ambient / Cinematic
 - **多声部支持** —— 最多 16 个独立声部，覆盖全部 128 种 General MIDI 乐器 + 中文乐器名
 - **Studio 编辑工作室** —— 五层渐进式编辑：一键预设 → 速度调节 → 乐器轨道 → 自由文本 AI 修改 → 高级 ABC 源码编辑
+- **版本管理** —— 自动快照（生成/改编/手动编辑），可视化 Git 风格版本图（彩色分支轨道、贝塞尔曲线），支持检出历史版本、从任意节点新建分支
 - **AI 听音诊断** —— 多模态分析生成的音频，给出评分与具体改进建议，支持一键应用
 - **乐谱可视化** —— abcjs 实时渲染五线谱，播放时光标同步跟随
 - **音频后处理** —— 混响、压缩、归一化、淡入淡出，专业级音质输出
@@ -29,10 +30,10 @@
 | **音频合成** | FluidSynth (midi2audio) | SoundFont 采样合成，MIDI → WAV |
 | **音频后处理** | pedalboard (Spotify) + pydub | 混响/压缩/归一化 + 格式转换 |
 | **前端** | 原生 HTML/CSS/JS + abcjs | 零依赖构建，五线谱实时渲染 |
-| **数据库** | SQLite + SQLModel | 项目元数据持久化，支持分页/标签/并发 |
+| **数据库** | SQLite + SQLModel | 项目元数据 + 版本快照持久化，自动 schema 迁移 |
 | **数据验证** | Pydantic v2 | 请求/响应模型，配置管理 |
 | **配置** | YAML + pydantic-settings | 分层配置，运行时热更新 |
-| **测试** | pytest + pytest-asyncio | 52 个测试用例，覆盖全部模块 |
+| **测试** | pytest + pytest-asyncio | 68 个测试用例，覆盖全部模块 |
 
 ## 📁 项目结构
 
@@ -45,13 +46,14 @@ hachimi_music/
 │   │   ├── schemas.py          # Pydantic 数据模型
 │   │   ├── pipeline.py         # 四阶段生成管线
 │   │   ├── config.py           # YAML 配置加载
-│   │   ├── database.py         # SQLite 引擎 + session 管理
-│   │   └── project.py          # 项目 CRUD（SQLModel + Pydantic）
+│   │   ├── database.py         # SQLite 引擎 + session 管理（含 migrate_db）
+│   │   ├── project.py          # 项目 CRUD（SQLModel + Pydantic）
+│   │   └── version.py          # ScoreVersion 表 + VersionManager（快照/检出/分支）
 │   ├── generation/
 │   │   ├── llm_generator.py    # LLM 作曲/改编/分析
 │   │   └── prompts/            # 8 个 Prompt 模板
 │   ├── conversion/
-│   │   ├── abc_to_midi.py      # ABC → MIDI 转换
+│   │   ├── abc_to_midi.py      # ABC → MIDI 转换（含 [V:n] 格式归一化）
 │   │   └── instrument_mapper.py # GM 乐器映射（128 种）
 │   └── synthesis/
 │       ├── fluidsynth_renderer.py  # 音频合成（四级降级）
@@ -67,7 +69,7 @@ hachimi_music/
 │   ├── download_soundfonts.py  # SoundFont 下载器
 │   ├── install_fluidsynth.py   # FluidSynth 安装器
 │   └── migrate_to_sqlite.py    # 旧 JSON 项目迁移脚本
-├── tests/                      # 测试套件（7 个模块，52 个用例）
+├── tests/                      # 测试套件（8 个模块，68 个用例）
 ├── data/                       # SQLite 数据库 hachimi.db（.gitignore）
 ├── soundfonts/                 # SoundFont 音色库（.gitignore）
 ├── projects/                   # 项目音频/MIDI 文件目录（.gitignore）
@@ -130,10 +132,10 @@ ai:
 
 ```bash
 # 启动 Web 服务器（默认端口 8000）
-uvicorn hachimi.api.routes:app --host 0.0.0.0 --port 8000
+uvicorn hachimi.api.app:app --host 0.0.0.0 --port 8000
 
 # 或指定前端端口分离开发
-uvicorn hachimi.api.routes:app --port 8001
+uvicorn hachimi.api.app:app --port 8001
 ```
 
 打开浏览器访问 `http://localhost:8000` 即可开始创作。
@@ -306,6 +308,16 @@ FluidSynth 环境可能存在多种安装状态，系统自动选择最佳可用
 | `POST` | `/projects/{id}/audio-feedback` | AI 听音分析 |
 | `GET` | `/projects/{id}/download/{type}` | 下载文件 |
 
+### 版本管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/projects/{id}/versions` | 列出所有版本快照 |
+| `POST` | `/projects/{id}/versions` | 手动创建快照 |
+| `POST` | `/projects/{id}/versions/{vid}/checkout` | 检出历史版本 |
+| `POST` | `/projects/{id}/versions/{vid}/branch` | 从历史版本新建分支 |
+| `DELETE` | `/projects/{id}/versions/{vid}` | 删除版本快照 |
+
 ### 系统设置
 
 | 方法 | 路径 | 说明 |
@@ -340,6 +352,7 @@ pytest tests/test_project_db.py -v
 | `test_instrument_mapper.py` | 精确/模糊匹配、中文乐器名、通道分配、打击乐 |
 | `test_schemas.py` | 请求模型默认值、边界校验、任务 ID 唯一性 |
 | `test_project_db.py` | 项目 CRUD、检查点、Score 序列化、分页排序、并发安全 |
+| `test_version.py` | 版本快照 CRUD、分支创建、检出、项目删除级联清理 |
 
 ## ⚙️ 配置说明
 
@@ -412,6 +425,12 @@ OPENAI_API_KEY=sk-xxxxx
 14. **AI 听音诊断** —— 多模态音频分析（Gemini `input_audio`），支持降级为谱面分析，评分 + 建议 + 一键应用
 15. **SQLite 数据库** —— 将项目元数据从 JSON 文件迁移至 SQLite，SQLModel 提供 ORM；公共 API 完全兼容，内置迁移脚本支持旧数据一键导入
 
+### 第四阶段：稳定性与多声部修复
+
+16. **版本管理** —— `ScoreVersion` SQLModel 表 + `VersionManager`，生成/改编/手动编辑自动创建快照；前端 SVG Git 风格图（彩色分支轨道、贝塞尔跨分支连线、当前版本光环），支持检出任意历史版本与新建分支
+17. **多声部 ABC 解析修复** —— 诊断发现 music21 无法正确处理 `[V:n]` 内联交错格式（所有音符全部塌缩进最后一个 Part）；新增 `_normalize_abc_voices()` 预处理器，自动将交错格式转换为 block 格式，确保多声部各自输出独立 MIDI 轨道并同步播放
+18. **管线健壮性** —— 生成后 DB 写入包裹 try/except 防止项目永久卡在「生成中」；前端 `completed` 状态无条件隐藏进度条；移除因 JS 函数提升（hoisting）导致 `showProjectResult` 无限递归的 monkey-patch
+
 ### 技术亮点
 
 - **两步分离生成** —— 元数据 JSON 与 ABC 纯文本分步生成，避免 JSON 格式约束导致的乐谱截断
@@ -419,6 +438,8 @@ OPENAI_API_KEY=sk-xxxxx
 - **多模态分析验证** —— 返回 `audio_analyzed` 标识和 token 用量日志，确认音频被实际分析
 - **深度错误恢复** —— 编辑失败不丢失原有乐谱和音频，管线断点续作
 - **SQLite 双层隔离** —— `ProjectRow`（SQLModel）与 `Project`（Pydantic）解耦，调用方零修改；嵌套对象序列化为 JSON 列，索引列支持分页/标签/状态过滤
+- **版本图可视化** —— 纯 SVG 绘制的 Git 风格提交图，支持多分支彩色轨道、贝塞尔曲线跨轨连线、当前版本光环高亮，无需第三方图形库
+- **ABC 格式自适应解析** —— `_normalize_abc_voices()` 检测 `[V:n]` 内联格式并自动转为 block 格式，对历史数据库存量数据同样透明有效，无需数据迁移
 
 ## 📜 许可证
 
