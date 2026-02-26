@@ -40,6 +40,7 @@ def apply_instruments_to_score(
     """
     Apply instrument assignments to a music21 Score.
     Sets the MIDI program for each part based on the instrument mapping.
+    Matches by voice_id first (robust), falls back to index order.
     """
     import music21
 
@@ -59,34 +60,60 @@ def apply_instruments_to_score(
 
     inst_dicts = assign_midi_channels(inst_dicts)
 
+    # Build voice_id → inst_info map for robust lookup
+    voice_map: dict[str, dict] = {str(d["voice_id"]): d for d in inst_dicts}
+    # Also map by lowercase voice_name (for matching music21 part.partName)
+    voice_name_map: dict[str, dict] = {}
+    for orig, assigned in zip(instruments, inst_dicts):
+        voice_name_map[orig.voice_name.lower()] = assigned
+
+    logger.info("Applying instruments: %d parts found, %d assignments", len(parts), len(inst_dicts))
+
     for i, part in enumerate(parts):
-        if i < len(inst_dicts):
+        # Strategy 1: match by voice_id from part.id (e.g. "V:1" or "1")
+        raw_id = str(getattr(part, "id", "")).strip()
+        voice_id = raw_id.lstrip("Vv").lstrip(":").strip() if raw_id else ""
+        inst_info = voice_map.get(voice_id) or voice_map.get(raw_id)
+
+        # Strategy 2: match by part partName (the name= attribute in ABC V: line)
+        if inst_info is None:
+            part_name = str(getattr(part, "partName", "") or "").strip().lower()
+            if part_name:
+                inst_info = voice_name_map.get(part_name)
+
+        # Strategy 3: index-based fallback
+        if inst_info is None and i < len(inst_dicts):
             inst_info = inst_dicts[i]
-            gm_program = inst_info["gm_program"]
-            midi_channel = inst_info["midi_channel"]
+            logger.debug("Part %d (id=%r): no voice_id/name match, using index fallback → %s",
+                         i, raw_id, inst_info["instrument"])
 
-            # Create and assign instrument
-            midi_instrument = music21.instrument.Instrument()
-            midi_instrument.midiProgram = gm_program
-            midi_instrument.midiChannel = midi_channel
+        if inst_info is None:
+            logger.warning("Part %d (id=%r): no instrument assignment — skipping", i, raw_id)
+            continue
 
-            # Try to set a proper instrument name
-            try:
-                named_inst = music21.instrument.instrumentFromMidiProgram(gm_program)
-                if named_inst:
-                    part.insert(0, named_inst)
-                    named_inst.midiChannel = midi_channel
-                else:
-                    part.insert(0, midi_instrument)
-            except Exception:
+        gm_program = inst_info["gm_program"]
+        midi_channel = inst_info["midi_channel"]
+
+        # Create and assign instrument
+        midi_instrument = music21.instrument.Instrument()
+        midi_instrument.midiProgram = gm_program
+        midi_instrument.midiChannel = midi_channel
+
+        # Try to set a proper instrument name
+        try:
+            named_inst = music21.instrument.instrumentFromMidiProgram(gm_program)
+            if named_inst:
+                part.insert(0, named_inst)
+                named_inst.midiChannel = midi_channel
+            else:
                 part.insert(0, midi_instrument)
+        except Exception:
+            part.insert(0, midi_instrument)
 
-            logger.info(
-                "Part %d: %s → GM program %d, channel %d",
-                i, inst_info["instrument"], gm_program, midi_channel,
-            )
-        else:
-            logger.warning("No instrument assignment for part %d", i)
+        logger.info(
+            "Part %d (id=%r, voice=%r): %s → GM program %d, channel %d",
+            i, raw_id, voice_id, inst_info["instrument"], gm_program, midi_channel,
+        )
 
 
 def abc_to_midi(
