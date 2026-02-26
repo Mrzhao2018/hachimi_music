@@ -303,6 +303,11 @@ function showProjectResult(project) {
     }
     // Show action buttons
     document.getElementById('result-actions').style.display = 'flex';
+    // Reload version history if the version panel is visible
+    const vp = document.getElementById('version-panel');
+    if (vp && vp.style.display !== 'none') {
+        loadVersions();
+    }
 }
 
 async function showResult(taskId) {
@@ -1394,16 +1399,7 @@ async function deleteVersion(versionId) {
     }
 }
 
-// Also refresh versions panel when generation/refine completes
-const _origShowProjectResult = showProjectResult;
-function showProjectResult(project) {
-    _origShowProjectResult(project);
-    // Reload version history if the version panel is visible
-    const vp = document.getElementById('version-panel');
-    if (vp && vp.style.display !== 'none') {
-        loadVersions();
-    }
-}
+
 // ── Advanced ABC Editor ─────────────────────────────────────
 
 let editorDebounce = null;
