@@ -530,16 +530,20 @@ def _run_project_pipeline(project_id: str, resume_from: str | None = None):
         project.duration_seconds = result.duration_seconds
 
     # Auto-snapshot on fresh (non-resume) generation
+    # Wrapped in try/except so a snapshot failure never blocks save_project.
     if result.status == TaskStatus.COMPLETED and result.score and resume_from is None:
-        parent_id = project.current_version_id
-        v = _version_mgr.create_version(
-            project_id=project_id,
-            score=result.score,
-            message="初始生成",
-            source="initial",
-            parent_id=parent_id,
-        )
-        project.current_version_id = v.id
+        try:
+            parent_id = project.current_version_id
+            v = _version_mgr.create_version(
+                project_id=project_id,
+                score=result.score,
+                message="初始生成",
+                source="initial",
+                parent_id=parent_id,
+            )
+            project.current_version_id = v.id
+        except Exception as _ve:
+            logger.warning("Version snapshot failed (non-fatal): %s", _ve)
 
     _project_mgr.save_project(project)
 
@@ -610,17 +614,20 @@ def _run_refine(project_id: str, modification_prompt: str, section: str | None):
         project.checkpoint.stage = "generated"
         project.checkpoint.abc_notation = new_score.abc_notation
 
-        # Auto-snapshot: capture the refined score
-        short_msg = full_prompt[:50] + ("…" if len(full_prompt) > 50 else "")
-        parent_id = project.current_version_id
-        v = _version_mgr.create_version(
-            project_id=project_id,
-            score=new_score,
-            message=f"AI修改: {short_msg}",
-            source="refine",
-            parent_id=parent_id,
-        )
-        project.current_version_id = v.id
+        # Auto-snapshot — non-fatal if version creation fails
+        try:
+            short_msg = full_prompt[:50] + ("…" if len(full_prompt) > 50 else "")
+            parent_id = project.current_version_id
+            v = _version_mgr.create_version(
+                project_id=project_id,
+                score=new_score,
+                message=f"AI修改: {short_msg}",
+                source="refine",
+                parent_id=parent_id,
+            )
+            project.current_version_id = v.id
+        except Exception as _ve:
+            logger.warning("Version snapshot failed (non-fatal): %s", _ve)
 
         _project_mgr.save_project(project)
         _run_project_pipeline(project_id, resume_from="converting")
@@ -662,17 +669,20 @@ async def edit_score(project_id: str, req: ScoreEditRequest):
     project.checkpoint.stage = "generated"
     project.checkpoint.abc_notation = req.abc_notation
 
-    # Auto-snapshot
-    snap_msg = req.message or "手动编辑 ABC"
-    parent_id = project.current_version_id
-    v = _version_mgr.create_version(
-        project_id=project_id,
-        score=project.score,
-        message=snap_msg,
-        source="manual_edit" if not req.message else "tempo_change" if "速度" in snap_msg else "manual_edit",
-        parent_id=parent_id,
-    )
-    project.current_version_id = v.id
+    # Auto-snapshot — non-fatal if version creation fails
+    try:
+        snap_msg = req.message or "手动编辑 ABC"
+        parent_id = project.current_version_id
+        v = _version_mgr.create_version(
+            project_id=project_id,
+            score=project.score,
+            message=snap_msg,
+            source="manual_edit" if not req.message else "tempo_change" if "速度" in snap_msg else "manual_edit",
+            parent_id=parent_id,
+        )
+        project.current_version_id = v.id
+    except Exception as _ve:
+        logger.warning("Version snapshot failed (non-fatal): %s", _ve)
 
     _project_mgr.save_project(project)
     loop = asyncio.get_event_loop()
